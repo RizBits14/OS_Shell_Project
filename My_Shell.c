@@ -6,15 +6,15 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#define MAX_INPUT 256
-#define MAX_ARGS 128
-#define MAX_HISTORY 100
+#define maximum_input 256
+#define maximum_args 128
+#define maximum_history 100
 
-char *history[MAX_HISTORY];
+char *history[maximum_history];
 int history_count = 0;
 
 void sigint_handler(int signo) {
-    printf("\n[Shell] CTRL+C ignored. Type 'exit' to quit.\nsh> ");
+    printf("\n CTRL + C is being ignored. Please type 'exit' and hit enter to stop.\nsh> ");
     fflush(stdout);
 }
 
@@ -26,7 +26,7 @@ char *trim(char *str) {
 }
 
 void add_to_history(const char *cmd) {
-    if (history_count < MAX_HISTORY) {
+    if (history_count < maximum_history) {
         history[history_count++] = strdup(cmd);
     }
 }
@@ -37,11 +37,12 @@ void show_history() {
     }
 }
 
-void execute_pipeline(char *line) {
-    char *commands[MAX_ARGS];
+int execute_pipeline(char *line) {
+    char *commands[maximum_args];
     int num_cmds = 0;
+
     char *pipe_token = strtok(line, "|");
-    while (pipe_token && num_cmds < MAX_ARGS) {
+    while (pipe_token && num_cmds < maximum_args) {
         commands[num_cmds++] = pipe_token;
         pipe_token = strtok(NULL, "|");
     }
@@ -50,13 +51,14 @@ void execute_pipeline(char *line) {
     for (int i = 0; i < num_cmds - 1; i++) {
         if (pipe(pipes + i * 2) < 0) {
             perror("Pipe creation failed");
-            exit(1);
+            return 1;
         }
     }
 
+    pid_t pids[maximum_args];
     for (int i = 0; i < num_cmds; i++) {
         char *cmd = commands[i];
-        char *args[MAX_ARGS];
+        char *args[maximum_args];
         char *in_file = NULL, *out_file = NULL;
         int append = 0;
 
@@ -81,7 +83,7 @@ void execute_pipeline(char *line) {
 
         int j = 0;
         char *arg = strtok(cmd, " ");
-        while (arg && j < MAX_ARGS - 1) {
+        while (arg && j < maximum_args - 1) {
             args[j++] = arg;
             arg = strtok(NULL, " ");
         }
@@ -117,12 +119,22 @@ void execute_pipeline(char *line) {
 
             execvp(args[0], args);
             perror("Command failed");
-            exit(1);
+            exit(127);
         }
+
+        pids[i] = pid;
     }
 
     for (int i = 0; i < 2 * (num_cmds - 1); i++) close(pipes[i]);
-    for (int i = 0; i < num_cmds; i++) wait(NULL);
+
+    int status, result = 0;
+    for (int i = 0; i < num_cmds; i++) {
+        waitpid(pids[i], &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            result = WEXITSTATUS(status);
+        }
+    }
+    return result;
 }
 
 void execute_input(char *input) {
@@ -144,30 +156,31 @@ void execute_input(char *input) {
         }
 
         char *cmd = trim(curr);
-        if (strlen(cmd) == 0) {
-            curr = next_cmd;
-            continue;
-        }
-
-        if (strcmp(cmd, "history") == 0 && execute_next) {
-            show_history();
-        } else if (strncmp(cmd, "cd ", 3) == 0 && execute_next) {
-            char *path = trim(cmd + 3);
-            if (chdir(path) != 0) {
-                perror("cd failed");
-            }
-        } else if (strcmp(cmd, "cd") == 0 && execute_next) {
-            const char *home = getenv("HOME");
-            if (home) chdir(home);
-        } else if (execute_next) {
-            pid_t pid = fork();
-            if (pid == 0) {
-                execute_pipeline(cmd);
-                exit(0);
-            } else {
-                int status;
-                waitpid(pid, &status, 0);
-                execute_next = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (strlen(cmd) > 0) {
+            if (execute_next) {
+                if (strcmp(cmd, "history") == 0) {
+                    show_history();
+                    execute_next = 1;
+                } else if (strncmp(cmd, "cd ", 3) == 0) {
+                    char *path = trim(cmd + 3);
+                    if (chdir(path) != 0) {
+                        perror("cd failed");
+                        execute_next = 0;
+                    } else {
+                        execute_next = 1;
+                    }
+                } else if (strcmp(cmd, "cd") == 0) {
+                    const char *home = getenv("HOME");
+                    if (home && chdir(home) != 0) {
+                        perror("cd failed");
+                        execute_next = 0;
+                    } else {
+                        execute_next = 1;
+                    }
+                } else {
+                    int result = execute_pipeline(cmd);
+                    execute_next = (result == 0); 
+                }
             }
         }
 
@@ -176,7 +189,7 @@ void execute_input(char *input) {
 }
 
 int main() {
-    char input[MAX_INPUT];
+    char input[maximum_input];
 
     struct sigaction sa;
     sa.sa_handler = sigint_handler;
@@ -185,7 +198,7 @@ int main() {
     sigaction(SIGINT, &sa, NULL);
 
     while (1) {
-        printf("sh> ");
+        printf("sh>");
         fflush(stdout);
 
         if (fgets(input, sizeof(input), stdin) == NULL) {
