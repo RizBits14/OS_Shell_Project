@@ -2,13 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/wait.h>
-#include <fcntl.h> // for open()
 
 #define MAX_INPUT 256
 #define MAX_ARGS 128
 
-// 🔹 Feature 1 + 2 + 3
 int main() {
     char input[MAX_INPUT];
     char *args[MAX_ARGS];
@@ -17,20 +16,14 @@ int main() {
         printf("sh> ");
         fflush(stdout);
 
-        if (fgets(input, sizeof(input), stdin) == NULL) {
-            break;
-        }
+        if (fgets(input, sizeof(input), stdin) == NULL) break;
 
         int len = strlen(input);
-        if (len > 0 && input[len - 1] == '\n') {
-            input[len - 1] = '\0';
-        }
+        if (len > 0 && input[len - 1] == '\n') input[len - 1] = '\0';
 
-        if (strcmp(input, "exit") == 0) {
-            break;
-        }
+        if (strcmp(input, "exit") == 0) break;
 
-        // 🔹 Feature 3: Handle piping
+        // Handle piping
         char *commands[MAX_ARGS];
         int num_cmds = 0;
         char *pipe_token = strtok(input, "|");
@@ -48,11 +41,11 @@ int main() {
         }
 
         for (int i = 0; i < num_cmds; i++) {
-            // Handle redirection inside each command
             char *cmd = commands[i];
             char *in_file = NULL, *out_file = NULL;
             int append = 0;
 
+            // Handle redirection
             char *out = strstr(cmd, ">>");
             if (out) {
                 append = 1;
@@ -69,11 +62,10 @@ int main() {
                 in_file = in + 1;
             }
 
-            // Trim spaces from filenames
             if (in_file) while (*in_file == ' ') in_file++;
             if (out_file) while (*out_file == ' ') out_file++;
 
-            // Tokenize command into arguments
+            // Tokenize arguments
             int j = 0;
             char *arg = strtok(cmd, " ");
             while (arg && j < MAX_ARGS - 1) {
@@ -82,25 +74,30 @@ int main() {
             }
             args[j] = NULL;
 
+            // Handle built-in 'cd' manually (only when no pipe)
+            if (num_cmds == 1 && args[0] && strcmp(args[0], "cd") == 0) {
+                if (args[1]) {
+                    if (chdir(args[1]) != 0) {
+                        perror("cd failed");
+                    }
+                } else {
+                    fprintf(stderr, "cd: missing argument\n");
+                }
+                continue;
+            }
+
             pid_t pid = fork();
-
             if (pid == 0) {
-                // 🔹 Feature 3: Setup input pipe
-                if (i > 0) {
-                    dup2(pipes[(i - 1) * 2], STDIN_FILENO);
-                }
-
-                // 🔹 Feature 3: Setup output pipe
-                if (i < num_cmds - 1) {
-                    dup2(pipes[i * 2 + 1], STDOUT_FILENO);
-                }
+                // Piping setup
+                if (i > 0) dup2(pipes[(i - 1) * 2], STDIN_FILENO);
+                if (i < num_cmds - 1) dup2(pipes[i * 2 + 1], STDOUT_FILENO);
 
                 // Close all pipe fds
                 for (int k = 0; k < 2 * (num_cmds - 1); k++) {
                     close(pipes[k]);
                 }
 
-                // 🔹 Feature 2: Handle input redirection
+                // Input redirection
                 if (in_file) {
                     int fd_in = open(in_file, O_RDONLY);
                     if (fd_in < 0) {
@@ -111,14 +108,9 @@ int main() {
                     close(fd_in);
                 }
 
-                // 🔹 Feature 2: Handle output redirection
+                // Output redirection
                 if (out_file) {
-                    int fd_out;
-                    if (append) {
-                        fd_out = open(out_file, O_WRONLY | O_CREAT | O_APPEND, 0644);
-                    } else {
-                        fd_out = open(out_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                    }
+                    int fd_out = open(out_file, O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC), 0644);
                     if (fd_out < 0) {
                         perror("Output file error");
                         exit(1);
@@ -133,12 +125,12 @@ int main() {
             }
         }
 
-        // Close all pipe fds in parent
+        // Close all pipes in parent
         for (int i = 0; i < 2 * (num_cmds - 1); i++) {
             close(pipes[i]);
         }
 
-        // Wait for all child processes
+        // Wait for children
         for (int i = 0; i < num_cmds; i++) {
             wait(NULL);
         }
