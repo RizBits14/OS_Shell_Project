@@ -26,4 +26,7 @@ A custom Unix-like shell implemented in C, supporting basic command execution, p
     Signal Handling
     Handles interrupts like Ctrl+C to stop only the running foreground process, not the shell itself.
 
+![Image](https://github.com/user-attachments/assets/bf2eb6e4-f313-4d62-ae04-f066495ef95b)
+![Image](https://github.com/user-attachments/assets/7c24b245-e2be-4cd6-b815-de1ee285b390)
+
 This shell is built entirely for terminal-based use on Linux systems and demonstrates concepts of process management, inter-process communication, and low-level system programming in C.
